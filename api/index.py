@@ -71,7 +71,7 @@ def _extract_video_info(video_id: str) -> Dict[str, Any]:
         "no_warnings": True,
         "noplaylist": True,
         # Avoid strict format negotiation failures for edge-case videos.
-        "format": "best",
+        #"format": "best",
         "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
         "http_headers": {
             "User-Agent": (
