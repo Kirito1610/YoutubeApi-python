@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 
 from flask import Flask, jsonify
 from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 
 app = Flask(__name__)
 
@@ -69,6 +70,8 @@ def _extract_video_info(video_id: str) -> Dict[str, Any]:
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
+        # Avoid strict format negotiation failures for edge-case videos.
+        "format": "best",
         "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
         "http_headers": {
             "User-Agent": (
@@ -82,8 +85,19 @@ def _extract_video_info(video_id: str) -> Dict[str, Any]:
     if cookie_file:
         ydl_opts["cookiefile"] = cookie_file
 
-    with YoutubeDL(ydl_opts) as ydl:
-        data = ydl.extract_info(url, download=False)
+    try:
+        with YoutubeDL(ydl_opts) as ydl:
+            data = ydl.extract_info(url, download=False)
+    except DownloadError as exc:
+        if "Requested format is not available" not in str(exc):
+            raise
+
+        # Retry without explicit format and extractor args to get raw metadata.
+        fallback_opts = dict(ydl_opts)
+        fallback_opts.pop("format", None)
+        fallback_opts.pop("extractor_args", None)
+        with YoutubeDL(fallback_opts) as ydl:
+            data = ydl.extract_info(url, download=False)
 
     formats = data.get("formats", [])
 
