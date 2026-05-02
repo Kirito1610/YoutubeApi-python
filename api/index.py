@@ -155,23 +155,3 @@ def get_video(video_id: str):
             )
         return jsonify({"error": error_message}), 500
 
-
-@app.get("/stream/<video_id>")
-def get_stream(video_id: str):
-    try:
-        info = _extract_video_info(video_id)
-        stream_url = None
-
-        # Serverless-friendly response: return direct stream URL for the top quality.
-        if info.get("videos"):
-            stream_url = info["videos"][-1].get("videoUrl")
-
-        return jsonify({"stream": stream_url, "audio": info.get("audio")})
-    except Exception as exc:  # pragma: no cover
-        error_message = str(exc)
-        if "Sign in to confirm you" in error_message:
-            error_message = (
-                "YouTube blocked this request. Configure YTDLP_COOKIES_B64 (recommended) "
-                "or YTDLP_COOKIES in Vercel environment variables."
-            )
-        return jsonify({"error": error_message}), 500
