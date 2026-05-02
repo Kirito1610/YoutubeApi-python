@@ -2,6 +2,7 @@ import base64
 import os
 import tempfile
 import time
+from pathlib import Path
 from typing import Any, Dict, List
 
 from flask import Flask, jsonify
@@ -12,6 +13,13 @@ app = Flask(__name__)
 CACHE_TTL_SECONDS = 60 * 60
 _cache: Dict[str, Dict[str, Any]] = {}
 _cookies_file_cache: str | None = None
+
+
+def _write_cookies_to_temp(cookie_content: str) -> str:
+    temp_path = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
+    with open(temp_path, "w", encoding="utf-8") as cookie_file:
+        cookie_file.write(cookie_content)
+    return temp_path
 
 
 def _resolve_cookies_file() -> str | None:
@@ -25,9 +33,7 @@ def _resolve_cookies_file() -> str | None:
     if cookies_b64:
         try:
             cookie_content = base64.b64decode(cookies_b64).decode("utf-8")
-            temp_path = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
-            with open(temp_path, "w", encoding="utf-8") as cookie_file:
-                cookie_file.write(cookie_content)
+            temp_path = _write_cookies_to_temp(cookie_content)
             _cookies_file_cache = temp_path
             return _cookies_file_cache
         except Exception:
@@ -37,9 +43,7 @@ def _resolve_cookies_file() -> str | None:
     # 2) Plain text env var alternative.
     cookies_text = os.getenv("YTDLP_COOKIES")
     if cookies_text:
-        temp_path = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
-        with open(temp_path, "w", encoding="utf-8") as cookie_file:
-            cookie_file.write(cookies_text)
+        temp_path = _write_cookies_to_temp(cookies_text)
         _cookies_file_cache = temp_path
         return _cookies_file_cache
 
@@ -47,7 +51,8 @@ def _resolve_cookies_file() -> str | None:
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     local_cookie_file = os.path.join(project_root, "cookies.txt")
     if os.path.exists(local_cookie_file):
-        _cookies_file_cache = local_cookie_file
+        cookie_content = Path(local_cookie_file).read_text(encoding="utf-8")
+        _cookies_file_cache = _write_cookies_to_temp(cookie_content)
         return _cookies_file_cache
 
     return None
