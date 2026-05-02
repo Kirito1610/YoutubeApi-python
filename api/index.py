@@ -1,3 +1,6 @@
+import base64
+import os
+import tempfile
 import time
 from typing import Any, Dict, List
 
@@ -8,6 +11,46 @@ app = Flask(__name__)
 
 CACHE_TTL_SECONDS = 60 * 60
 _cache: Dict[str, Dict[str, Any]] = {}
+_cookies_file_cache: str | None = None
+
+
+def _resolve_cookies_file() -> str | None:
+    global _cookies_file_cache
+    if _cookies_file_cache:
+        return _cookies_file_cache
+
+    # 1) Preferred for Vercel: set YTDLP_COOKIES_B64 with base64-encoded
+    # Netscape-format cookie content.
+    cookies_b64 = os.getenv("YTDLP_COOKIES_B64")
+    if cookies_b64:
+        try:
+            cookie_content = base64.b64decode(cookies_b64).decode("utf-8")
+            temp_path = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
+            with open(temp_path, "w", encoding="utf-8") as cookie_file:
+                cookie_file.write(cookie_content)
+            _cookies_file_cache = temp_path
+            return _cookies_file_cache
+        except Exception:
+            # Fall through to other cookie sources.
+            pass
+
+    # 2) Plain text env var alternative.
+    cookies_text = os.getenv("YTDLP_COOKIES")
+    if cookies_text:
+        temp_path = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
+        with open(temp_path, "w", encoding="utf-8") as cookie_file:
+            cookie_file.write(cookies_text)
+        _cookies_file_cache = temp_path
+        return _cookies_file_cache
+
+    # 3) Local dev fallback: project root cookies.txt
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    local_cookie_file = os.path.join(project_root, "cookies.txt")
+    if os.path.exists(local_cookie_file):
+        _cookies_file_cache = local_cookie_file
+        return _cookies_file_cache
+
+    return None
 
 
 def _extract_video_info(video_id: str) -> Dict[str, Any]:
@@ -21,7 +64,18 @@ def _extract_video_info(video_id: str) -> Dict[str, Any]:
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
+        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        },
     }
+    cookie_file = _resolve_cookies_file()
+    if cookie_file:
+        ydl_opts["cookiefile"] = cookie_file
 
     with YoutubeDL(ydl_opts) as ydl:
         data = ydl.extract_info(url, download=False)
@@ -74,7 +128,13 @@ def get_video(video_id: str):
     try:
         return jsonify(_extract_video_info(video_id))
     except Exception as exc:  # pragma: no cover
-        return jsonify({"error": str(exc)}), 500
+        error_message = str(exc)
+        if "Sign in to confirm you" in error_message:
+            error_message = (
+                "YouTube blocked this request. Configure YTDLP_COOKIES_B64 (recommended) "
+                "or YTDLP_COOKIES in Vercel environment variables."
+            )
+        return jsonify({"error": error_message}), 500
 
 
 @app.get("/stream/<video_id>")
@@ -89,4 +149,10 @@ def get_stream(video_id: str):
 
         return jsonify({"stream": stream_url, "audio": info.get("audio")})
     except Exception as exc:  # pragma: no cover
-        return jsonify({"error": str(exc)}), 500
+        error_message = str(exc)
+        if "Sign in to confirm you" in error_message:
+            error_message = (
+                "YouTube blocked this request. Configure YTDLP_COOKIES_B64 (recommended) "
+                "or YTDLP_COOKIES in Vercel environment variables."
+            )
+        return jsonify({"error": error_message}), 500
